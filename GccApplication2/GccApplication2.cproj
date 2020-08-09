@@ -136,13 +136,19 @@
     </ToolchainSettings>
   </PropertyGroup>
   <ItemGroup>
-    <Compile Include="lcd_OneWireProtocol.c">
+    <Compile Include="lcd.c">
       <SubType>compile</SubType>
     </Compile>
-    <Compile Include="lcd_OneWireProtocol.h">
+    <Compile Include="lcd.h">
       <SubType>compile</SubType>
     </Compile>
     <Compile Include="main.c">
+      <SubType>compile</SubType>
+    </Compile>
+    <Compile Include="morseCode.c">
+      <SubType>compile</SubType>
+    </Compile>
+    <Compile Include="morseCode.h">
       <SubType>compile</SubType>
     </Compile>
   </ItemGroup>

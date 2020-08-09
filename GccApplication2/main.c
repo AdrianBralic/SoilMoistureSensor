@@ -5,32 +5,32 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <avr/interrupt.h>
-#include "lcd_OneWireProtocol.h"
+#include "lcd.h"
+#include "morseCode.h"
 
-#define DHT11_PIN PIN6
 #define MAXVIEW 3
+int view = 0;
 
 float lightPerc = 0;
+#define LIGHT_MIN_PERC 10
+#define LIGHT_MAX_PERC 100
+int lightFlag = 0;
+
 float moistPerc = 0;
+#define MOIST_MIN_PERC 10
+#define MOIST_MAX_PERC 100
+int moistFlag = 0;
+
+#define DHT11_PIN PIN6
 uint8_t c=0, I_RH, D_RH, I_Temp, D_Temp, CheckSum;
-char DHTdata[5];
 
-int view = 0;
-int stot  = 0;
-void printLight() {
+int stot  = 0;	// TODO possibly replace with TIMER0 SIGNALIZATION BUSY variable
+
+void printADC(char *label, int value) {
 	lcd_clear();
 	char adcStr[16];
-	itoa(lightPerc, adcStr, 10);
-	lcd_print("Light = ");
-	lcd_print(adcStr);
-	lcd_print("%");
-}
-
-void printYL69() {
-	lcd_clear();
-	char adcStr[16];
-	itoa(moistPerc, adcStr, 10);
-	lcd_print("SMS = ");
+	itoa(value, adcStr, 10);
+	lcd_print(label);
 	lcd_print(adcStr);
 	lcd_print("%");
 }
@@ -74,30 +74,31 @@ void printDHT() {
 	lcd_clear();
 	
 	if ((I_RH + D_RH + I_Temp + D_Temp) != CheckSum) {
-		lcd_gotoxy(0,0);
 		lcd_print("DHT Error");
-	} else {
-		itoa(I_RH,DHTdata,10);
-		lcd_print("Humidity = ");
-		lcd_print(DHTdata);
-		lcd_print(".");
-		
-		itoa(D_RH,DHTdata,10);
-		lcd_print(DHTdata);
-		lcd_print("%");
-
-		itoa(I_Temp,DHTdata,10);
-		lcd_gotoxy(0,1);
-		lcd_print("Temp = ");
-		lcd_print(DHTdata);
-		lcd_print(".");
-		
-		itoa(D_Temp,DHTdata,10);
-		lcd_print(DHTdata);
-		lcddata(0xDF);
-		lcd_print("C ");
+		return;
 	}
+
+	char DHTdata[5];
 	
+	itoa(I_RH, DHTdata, 10);
+	lcd_print("Humidity = ");
+	lcd_print(DHTdata);
+	lcd_print(".");
+	
+	itoa(D_RH, DHTdata, 10);
+	lcd_print(DHTdata);
+	lcd_print("%");
+
+	itoa(I_Temp, DHTdata, 10);
+	lcd_gotoxy(0,1);
+	lcd_print("Temp = ");
+	lcd_print(DHTdata);
+	lcd_print(".");
+	
+	itoa(D_Temp, DHTdata, 10);
+	lcd_print(DHTdata);
+	lcddata(0xDF);
+	lcd_print("C");	
 }
 
 void nonBlockingDebounce() {
@@ -111,67 +112,82 @@ void nonBlockingDebounce() {
 	cli();
 }
 
+/*	Change LCD display view on INT0	*/
 ISR(INT0_vect) {
-	view++;
-	view %= MAXVIEW;
+	view = (view + 1) % MAXVIEW;
 	nonBlockingDebounce();
 }
 
+/*
+	Toggle day-mode/night-mode on INT1
+	Night-mode ignores light threshold
+*/
 ISR(INT1_vect) {
 	nonBlockingDebounce();
 }
 
+/*	Signalize unfavorable conditions	*/
 ISR(TIMER0_COMP_vect){
 	stot--;
 	if(stot %100==0) {
-	PORTA ^= 0x80;
-	_delay_ms(100);
-	PORTA ^= 0x80;
+		PORTA ^= 0x80;
+		_delay_ms(100);
+		PORTA ^= 0x80;
 	}
 }
 
 int main(void)
 {
+	/*	INIT LCD	*/
 	DDRD = _BV(4);
-	DDRA = _BV(7); // buzzer
-	PORTA = 0x80;
-	
-	TCCR0 = _BV(WGM01) | _BV(CS02) | _BV(CS00);
-	OCR0 = 71;
-	
-	MCUCR = _BV(ISC01) | _BV(ISC11);
-	GICR = _BV(INT1) | _BV(INT0);
-	sei();
-	
 	TCCR1A = _BV(COM1B1) | _BV(WGM10);
 	TCCR1B = _BV(WGM12) | _BV(CS11);
 	OCR1B = 24;
-
 	lcdinit();
 	lcd_clear();
+	
+	/*
+		INIT SIGNALIZATION
+		Enable Timer0 interrupts on TIMSK only during unfavorable conditions
+	*/
+	TCCR0 = _BV(WGM01) | _BV(CS02) | _BV(CS00);
+	OCR0 = 71;
+	morse_init();
+	
+	/*	INIT INTERRUPTS	*/
+	MCUCR = _BV(ISC01) | _BV(ISC11);
+	GICR = _BV(INT1) | _BV(INT0);
+	sei();
 
+	/*	INIT ADC	*/
 	ADMUX = _BV(REFS0) | _BV(MUX0);
 	ADCSRA = _BV(ADEN) | _BV(ADPS2) | _BV(ADPS1) | _BV(ADPS0);
 
 	int DHT_delay = 0;
+	
 	while (1) {
-		if(lightPerc < 10){
-			lightFlag = 1;
-		}
 		
+		/*	Read from CH0 (photo-resistor)	*/
 		ADMUX ^= _BV(MUX0);
 		ADCSRA ^= _BV(ADPS0);
 		ADCSRA |= _BV(ADSC);
 		while (!(ADCSRA & _BV(ADIF)));
 		lightPerc = (1023 - ADC) * 100.00 / 1023.00;
+		lightFlag = (lightPerc < LIGHT_MIN_PERC || lightPerc > LIGHT_MAX_PERC) ? 1 : 0;
 		
+		/*	Read from CH1 (soil moisture)	*/
 		ADMUX ^= _BV(MUX0);
 		ADCSRA ^= _BV(ADPS0);
 		ADCSRA |= _BV(ADSC);
 		while (!(ADCSRA & _BV(ADIF)));
 		ADCSRA |= _BV(ADIF);
 		moistPerc = 100 - (ADC * 100.00) / 1023.00;
+		moistFlag = (moistPerc < MOIST_MIN_PERC || moistPerc > MOIST_MAX_PERC) ? 1 : 0;
 		
+		/*
+			Read from DHT (humidity and temperature)
+			Read once every 5s
+		*/
 		if (DHT_delay % 20 == 0) {
 			Request();
 			Response();
@@ -182,34 +198,28 @@ int main(void)
 			CheckSum = Receive_data();
 		}
 		DHT_delay++;
-		
-		/*// buzzer
-		if(perc < 40) {
-			PORTA ^= 0x80;
-			_delay_ms(1000);
-			PORTA ^= 0x80;
-		}*/
 
+		/*	Display on LCD	*/
 		switch (view) {
 			case 0:
-				printLight();
+				printADC("Light = ", lightPerc);
 				break;
 			case 1:
 				printDHT();
 				break;
 			case 2:
-				printYL69();
+				printADC("SMS = ", moistPerc);
 				break;
 		}
-		if (){
+		
+		if (lightFlag || moistFlag) {
 			if(stot == 0)
 				stot = 100;
 			TIMSK |= _BV(OCIE0);
+		} else {
+			TIMSK &= ~_BV(OCIE0);
 		}
-		if (lightPerc > 20){
-
-			TIMSK &=~ _BV(OCIE0);
-		}
+		
 		_delay_ms(250);
 	}
 }
