@@ -15,19 +15,27 @@ float lightPerc = 0;
 #define LIGHT_MIN_PERC 10
 #define LIGHT_MAX_PERC 100
 int lightFlag = 0;
+int nightMode = 0;
 
-float moistPerc = 0;
+float moistPerc1 = 0;
+float moistPerc2 = 0;
 #define MOIST_MIN_PERC 10
-#define MOIST_MAX_PERC 100
-int moistFlag = 0;
+#define MOIST_MAX_PERC 95
+int moistFlag1 = 0;
+int moistFlag2 = 0;
+
+#define T_MIN 18
+#define T_MAX 38
+int tempFlag = 0;
+
+#define H_MIN 15
+#define H_MAX 100
+int humFlag = 0;
 
 #define DHT11_PIN PIN6
-uint8_t c=0, I_RH, D_RH, I_Temp, D_Temp, CheckSum;
-
-int stot  = 0;	// TODO possibly replace with TIMER0 SIGNALIZATION BUSY variable
+uint8_t c = 0, I_RH, D_RH, I_Temp, D_Temp, CheckSum;
 
 void printADC(char *label, int value) {
-	lcd_clear();
 	char adcStr[16];
 	itoa(value, adcStr, 10);
 	lcd_print(label);
@@ -35,35 +43,45 @@ void printADC(char *label, int value) {
 	lcd_print("%");
 }
 
-void Request()						/* Microcontroller send start pulse or request */
-{
-	DDRD |= (1<<DHT11_PIN); // Request is sent from MCU PIN
-	PORTD &= ~(1<<DHT11_PIN);		/* set to low pin, pull down */
-	_delay_ms(20);					/* wait for 20ms */
-	PORTD |= (1<<DHT11_PIN);		/* set to high pin, pull up */
+void printLight() {
+	lcd_clear();
+	printADC("Light = ", lightPerc);
+	lcd_gotoxy(0, 1);
+	if (!nightMode) {
+		lcd_print("Day mode");
+	} else {
+		lcd_print("Night mode");
+	}
 }
 
-void Response()						/* receive response from DHT11 */
-{
-	DDRD &= ~(1<<DHT11_PIN); // explicitly pull up PIN
-	while(PIND & (1<<DHT11_PIN)); // check to see if state changed from high to low
-	while((PIND & (1<<DHT11_PIN))==0); // check if pulled down voltage is equal to zero
-	while(PIND & (1<<DHT11_PIN)); // check to see if state change from low to high
+void printMoisture() {
+	lcd_clear();
+	printADC("Moisture1 = ", moistPerc1);
+	lcd_gotoxy(0, 1);
+	printADC("Moisture2 = ", moistPerc2);
 }
 
-uint8_t Receive_data()							/* receive data */
-{	
-	/*
-	The data frame is of total 40 bits long, it contains 5 segments and each segment
-	is 8-bit long. We check each bit if it is high or low
-	*/
-	for (int q=0; q<8; q++)
-	{
-		while((PIND & (1<<DHT11_PIN)) == 0);/* check received bit 0 or 1, if pulled up */
+void Request() {
+	DDRD |= (1<<DHT11_PIN); 
+	PORTD &= ~(1<<DHT11_PIN);		
+	_delay_ms(20);					
+	PORTD |= (1<<DHT11_PIN);		
+}
+
+void Response()	{
+	DDRD &= ~(1<<DHT11_PIN);
+	while(PIND & (1<<DHT11_PIN)); 
+	while((PIND & (1<<DHT11_PIN))==0);
+	while(PIND & (1<<DHT11_PIN));
+}
+
+uint8_t Receive_data() {	
+	for (int q=0; q<8; q++) {
+		while((PIND & (1<<DHT11_PIN)) == 0);
 		_delay_us(60);
-		if(PIND & (1<<DHT11_PIN))				/* if high pulse is greater than 30ms */
-		c = (c<<1)|(0x01);						/* then it is logic HIGH */
-		else									/* otherwise it is logic LOW */
+		if(PIND & (1<<DHT11_PIN))				
+		c = (c<<1)|(0x01);						
+		else									
 		c = (c<<1);
 		while(PIND & (1<<DHT11_PIN));
 	}
@@ -108,7 +126,7 @@ void nonBlockingDebounce() {
 	_delay_ms(250);
 	GIFR = _BV(INTF0);
 	GICR |= _BV(INT0);
-
+	
 	cli();
 }
 
@@ -123,17 +141,22 @@ ISR(INT0_vect) {
 	Night-mode ignores light threshold
 */
 ISR(INT1_vect) {
+	nightMode = nightMode ? 0 : 1;
 	nonBlockingDebounce();
 }
 
 /*	Signalize unfavorable conditions	*/
-ISR(TIMER0_COMP_vect){
-	stot--;
-	if(stot %100==0) {
-		PORTA ^= 0x80;
-		_delay_ms(100);
-		PORTA ^= 0x80;
-	}
+void beeper(){
+	if (lightFlag)
+		morse_L();
+	if (tempFlag)
+		morse_T();
+	if (humFlag)
+		morse_H();
+	if (moistFlag1)
+		morse_1();
+	if(moistFlag2)
+		morse_2();
 }
 
 int main(void)
@@ -142,16 +165,10 @@ int main(void)
 	DDRD = _BV(4);
 	TCCR1A = _BV(COM1B1) | _BV(WGM10);
 	TCCR1B = _BV(WGM12) | _BV(CS11);
-	OCR1B = 24;
 	lcdinit();
 	lcd_clear();
 	
-	/*
-		INIT SIGNALIZATION
-		Enable Timer0 interrupts on TIMSK only during unfavorable conditions
-	*/
-	TCCR0 = _BV(WGM01) | _BV(CS02) | _BV(CS00);
-	OCR0 = 71;
+	/*	INIT SIGNALIZATION	*/
 	morse_init();
 	
 	/*	INIT INTERRUPTS	*/
@@ -173,7 +190,11 @@ int main(void)
 		ADCSRA |= _BV(ADSC);
 		while (!(ADCSRA & _BV(ADIF)));
 		lightPerc = (1023 - ADC) * 100.00 / 1023.00;
-		lightFlag = (lightPerc < LIGHT_MIN_PERC || lightPerc > LIGHT_MAX_PERC) ? 1 : 0;
+		if (nightMode) {
+			lightFlag = (lightPerc > LIGHT_MAX_PERC) ? 1 : 0;
+		} else {
+			lightFlag = (lightPerc < LIGHT_MIN_PERC || lightPerc > LIGHT_MAX_PERC) ? 1 : 0;
+		}
 		
 		/*	Read from CH1 (soil moisture)	*/
 		ADMUX ^= _BV(MUX0);
@@ -181,8 +202,16 @@ int main(void)
 		ADCSRA |= _BV(ADSC);
 		while (!(ADCSRA & _BV(ADIF)));
 		ADCSRA |= _BV(ADIF);
-		moistPerc = 100 - (ADC * 100.00) / 1023.00;
-		moistFlag = (moistPerc < MOIST_MIN_PERC || moistPerc > MOIST_MAX_PERC) ? 1 : 0;
+		moistPerc1 = 100 - (ADC * 100.00) / 1023.00;
+		moistFlag1 = (moistPerc1 < MOIST_MIN_PERC || moistPerc1 > MOIST_MAX_PERC) ? 1 : 0;
+		
+		ADMUX ^= _BV(MUX0) | _BV(MUX1);
+		ADCSRA |= _BV(ADSC);
+		while (!(ADCSRA & _BV(ADIF)));
+		ADCSRA |= _BV(ADIF);
+		moistPerc2 = 100 - (ADC * 100.00) / 1023.00;
+		moistFlag2 = (moistPerc2 < MOIST_MIN_PERC || moistPerc2 > MOIST_MAX_PERC) ? 1 : 0;
+		ADMUX ^= _BV(MUX0) | _BV(MUX1);
 		
 		/*
 			Read from DHT (humidity and temperature)
@@ -196,30 +225,26 @@ int main(void)
 			I_Temp   = Receive_data();
 			D_Temp   = Receive_data();
 			CheckSum = Receive_data();
+			
+			tempFlag = (I_Temp < T_MIN || I_Temp > T_MAX) ? 1 : 0;
+			humFlag = (I_RH < H_MIN || I_RH > H_MAX) ? 1 : 0;
 		}
 		DHT_delay++;
 
 		/*	Display on LCD	*/
 		switch (view) {
 			case 0:
-				printADC("Light = ", lightPerc);
+				printLight();
 				break;
 			case 1:
 				printDHT();
 				break;
 			case 2:
-				printADC("SMS = ", moistPerc);
+				printMoisture();
 				break;
 		}
 		
-		if (lightFlag || moistFlag) {
-			if(stot == 0)
-				stot = 100;
-			TIMSK |= _BV(OCIE0);
-		} else {
-			TIMSK &= ~_BV(OCIE0);
-		}
-		
+		beeper();
 		_delay_ms(250);
 	}
 }

@@ -20,13 +20,36 @@ void morse_L() {
 	morse_signal(LONG_MS);
 	morse_signal(SHORT_MS);
 	morse_signal(SHORT_MS);
-}
-
-void morse_M() {
-	morse_signal(LONG_MS);
-	morse_signal(LONG_MS);
+	_delay_ms(LONG_MS);
 }
 
 void morse_T() {
 	morse_signal(LONG_MS);
+	_delay_ms(LONG_MS);
+}
+
+void morse_H() {
+	morse_signal(SHORT_MS);
+	morse_signal(SHORT_MS);
+	morse_signal(SHORT_MS);
+	morse_signal(SHORT_MS);
+	_delay_ms(LONG_MS);
+}
+
+void morse_1() {
+	morse_signal(SHORT_MS);
+	morse_signal(LONG_MS);
+	morse_signal(LONG_MS);
+	morse_signal(LONG_MS);
+	morse_signal(LONG_MS);
+	_delay_ms(LONG_MS);
+}
+
+void morse_2() {
+	morse_signal(SHORT_MS);
+	morse_signal(SHORT_MS);
+	morse_signal(LONG_MS);
+	morse_signal(LONG_MS);
+	morse_signal(LONG_MS);
+	_delay_ms(LONG_MS);
 }
