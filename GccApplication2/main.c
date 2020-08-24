@@ -9,18 +9,19 @@
 #include "morseCode.h"
 
 #define MAXVIEW 3
-int view = 0;
+int view = 2;
 
 float lightPerc = 0;
-#define LIGHT_MIN_PERC 10
-#define LIGHT_MAX_PERC 100
+#define LIGHT_MIN_PERC 15
+#define LIGHT_MAX_PERC 90
+#define THRESHOLD 5
 int lightFlag = 0;
 int nightMode = 0;
 
 float moistPerc1 = 0;
 float moistPerc2 = 0;
-#define MOIST_MIN_PERC 10
-#define MOIST_MAX_PERC 95
+#define MOIST_MIN_PERC 20
+#define MOIST_MAX_PERC 90
 int moistFlag1 = 0;
 int moistFlag2 = 0;
 
@@ -160,16 +161,16 @@ void beeper(){
 }
 
 int main(void)
-{
+{	
+	/*	INIT SIGNALIZATION	*/
+	morse_init();
+	
 	/*	INIT LCD	*/
 	DDRD = _BV(4);
 	TCCR1A = _BV(COM1B1) | _BV(WGM10);
 	TCCR1B = _BV(WGM12) | _BV(CS11);
 	lcdinit();
 	lcd_clear();
-	
-	/*	INIT SIGNALIZATION	*/
-	morse_init();
 	
 	/*	INIT INTERRUPTS	*/
 	MCUCR = _BV(ISC01) | _BV(ISC11);
@@ -190,10 +191,11 @@ int main(void)
 		ADCSRA |= _BV(ADSC);
 		while (!(ADCSRA & _BV(ADIF)));
 		lightPerc = (1023 - ADC) * 100.00 / 1023.00;
+		int lightBuffer = lightFlag ? THRESHOLD : 0;
 		if (nightMode) {
-			lightFlag = (lightPerc > LIGHT_MAX_PERC) ? 1 : 0;
+			lightFlag = (lightPerc > (LIGHT_MAX_PERC - lightBuffer)) ? 1 : 0;
 		} else {
-			lightFlag = (lightPerc < LIGHT_MIN_PERC || lightPerc > LIGHT_MAX_PERC) ? 1 : 0;
+			lightFlag = (lightPerc < (LIGHT_MIN_PERC + lightBuffer) || lightPerc > (LIGHT_MAX_PERC - lightBuffer)) ? 1 : 0;
 		}
 		
 		/*	Read from CH1 (soil moisture)	*/

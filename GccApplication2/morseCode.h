@@ -5,9 +5,9 @@
 #include <avr/io.h>
 #include <util/delay.h>
 
-#define MORSE_DDR DDRA
-#define MORSE_PORT PORTA
-#define MORSE_PIN 7
+#define MORSE_DDR DDRB
+#define MORSE_PORT PORTB
+#define MORSE_PIN 0
 
 #define SHORT_MS 100
 #define LONG_MS 300
